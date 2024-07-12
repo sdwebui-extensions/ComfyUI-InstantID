@@ -13,6 +13,8 @@ import folder_paths
 from huggingface_hub import hf_hub_download
 from insightface.app import FaceAnalysis
 from .pipeline_stable_diffusion_xl_instantid import StableDiffusionXLInstantIDPipeline, draw_kps
+import json
+import comfy.utils
 
 
 current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -68,7 +70,7 @@ class InsightFaceLoader_Node_Zho:
 
     def load_insight_face_antelopev2(self, provider):
             
-        model = FaceAnalysis(name="antelopev2", root=current_directory, providers=[provider + 'ExecutionProvider',])
+        model = FaceAnalysis(name="antelopev2", root= '/stable-diffusion-cache/models/insightface' if os.path.exists('/stable-diffusion-cache/models/insightface/models/antelopev2') else os.path.join(folder_paths.models_dir, 'insightface'), providers=[provider + 'ExecutionProvider',])
         model.prepare(ctx_id=0, det_size=(640, 640))
 
         return (model,)
@@ -82,7 +84,7 @@ class IDControlNetLoaderNode_Zho:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "controlnet_path": ("STRING", {"default": "enter your path"}),
+                "controlnet_path": (folder_paths.get_filename_list('controlnet'),),
             }
         }
 
@@ -92,8 +94,13 @@ class IDControlNetLoaderNode_Zho:
     CATEGORY = "📷InstantID"
     
     def load_idcontrolnet(self, controlnet_path):
+        config = json.load(open(f'{current_directory}/controlnet_config/config.json'))
 
-        controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=torch.float16)
+        controlnet = ControlNetModel(**config)
+        model_path = folder_paths.get_full_path('controlnet', controlnet_path)
+        dic = comfy.utils.load_torch_file(model_path)
+        controlnet.load_state_dict(dic)
+        controlnet.to(torch.float16)
 
         return [controlnet]
 
@@ -106,7 +113,7 @@ class IDBaseModelLoader_fromhub_Node_Zho:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "base_model_path": ("STRING", {"default": "wangqixun/YamerMIX_v8"}),
+                "base_model_path": ("STRING", {"default": "YamerMIX_v8"}),
                 "controlnet": ("MODEL",)
             }
         }
@@ -122,7 +129,7 @@ class IDBaseModelLoader_fromhub_Node_Zho:
             base_model_path,
             controlnet=controlnet,
             torch_dtype=torch.float16,
-            local_dir="./checkpoints"
+            local_dir=os.path.join(folder_paths.models_dir, 'diffusers')
         ).to(device)
         return [pipe]
 
@@ -173,8 +180,7 @@ class Ipadapter_instantidLoader_Node_Zho:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "Ipadapter_instantid_path": ("STRING", {"default": "enter your path"}),
-                "filename": ("STRING", {"default": "ip-adapter.bin"}),
+                "Ipadapter_instantid_filename": (folder_paths.get_filename_list('controlnet'),),
                 "pipe": ("MODEL",),
             }
         }
@@ -183,9 +189,9 @@ class Ipadapter_instantidLoader_Node_Zho:
     FUNCTION = "load_ip_adapter_instantid"
     CATEGORY = "📷InstantID"
 
-    def load_ip_adapter_instantid(self, pipe, Ipadapter_instantid_path, filename):
+    def load_ip_adapter_instantid(self, pipe, Ipadapter_instantid_filename):
         # 使用hf_hub_download方法获取PhotoMaker文件的路径
-        face_adapter = os.path.join(Ipadapter_instantid_path, filename)
+        face_adapter = folder_paths.get_full_path('controlnet', Ipadapter_instantid_filename)
 
         # load adapter
         pipe.load_ip_adapter_instantid(face_adapter)
